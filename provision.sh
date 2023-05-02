@@ -1,30 +1,22 @@
 #!/bin/bash
 
-SCRIPT_PREFIX="salt-hugo"
-STORAGE_PATH="/data/lxd/"${SCRIPT_PREFIX}
+SCRIPT_PREFIX="salt"
+SCRIPT_APP_PREFIX=${SCRIPT_PREFIX}"-hugo"
+STORAGE_PATH="/data/lxd/"${SCRIPT_APP_PREFIX}
 IP="192.168.56"
 IFACE="eth0"
 IP_SUBNET=${IP}".1/24"
-SALT_MASTER_POOL=${SCRIPT_PREFIX}"-pool"
-SCRIPT_PROFILE_NAME=${SCRIPT_PREFIX}"-profile"
-SCRIPT_BRIDGE_NAME=${SCRIPT_PREFIX}"-br"
-SALT_MINION_NAME=${SCRIPT_PREFIX}"-minion"
-SALT_MASTER_NAME=${SCRIPT_PREFIX}"-master"
-MASTER_IMAGE=${SALT_MASTER_NAME}
-MINION_IMAGE=${SALT_MINION_NAME}
+SALT_MASTER_POOL=${SCRIPT_APP_PREFIX}"-pool"
+SCRIPT_PROFILE_NAME=${SCRIPT_APP_PREFIX}"-profile"
+SCRIPT_BRIDGE_NAME=${SCRIPT_APP_PREFIX}"-br"
+SALT_MINION_NAME=${SCRIPT_APP_PREFIX}"-minion"
+SALT_MASTER_NAME=${SCRIPT_APP_PREFIX}"-master"
+MASTER_IMAGE=${SCRIPT_PREFIX}"-master"
+MINION_IMAGE=${SCRIPT_PREFIX}"-minion"
 IS_MASTER_LOCAL=false
 IS_MINION_LOCAL=false
 
-# check if jq exists
-if ! snap list | grep jq >>/dev/null 2>&1; then
-  sudo snap install jq 
-fi
-# check if lxd exists
-if ! snap list | grep lxd >>/dev/null 2>&1; then
-  sudo snap install lxd 
-fi
-
-image_names=("${SALT_MASTER_NAME}" "${SALT_MINION_NAME}")
+image_names=("${MASTER_IMAGE}" "${MINION_IMAGE}")
 
 # Loop through the list of items
 for image_name in "${image_names[@]}"
@@ -33,18 +25,23 @@ do
         echo "Image $image_name is present locally"
         
 
-        if [ $image_name = ${SALT_MASTER_NAME} ]; then
+        if [ $image_name = ${MASTER_IMAGE} ]; then
             MASTER_IMAGE=$image_name
             IS_MASTER_LOCAL=true
             echo "Using image $image_name for master"
         fi
-        if [ $image_name = ${SALT_MINION_NAME} ]; then
+        if [ $image_name = ${MINION_IMAGE} ]; then
             MINION_IMAGE=$image_name
             IS_MINION_LOCAL=true
             echo "Using image $image_name for minion(s)"
         fi
     fi
 done
+
+if ! ${IS_MASTER_LOCAL} || ! ${IS_MINION_LOCAL}; then
+    echo "Skipping the script"
+    exit 0 
+fi
 
 if ! ${IS_MASTER_LOCAL} || ! ${IS_MINION_LOCAL}; then
     echo "Please provision Master & Salt using https://github.com/iamnswamyg/salt-infra-image.git"
@@ -94,7 +91,7 @@ lxc start ${SALT_MASTER_NAME}
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-script-share disk source=${PWD}/scripts path=/lxd
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-salt-share disk source=${PWD}/salt-root/salt path=/srv/salt
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-pillar-share disk source=${PWD}/salt-root/pillar path=/srv/pillar
-sudo lxc exec ${SALT_MASTER_NAME} -- /bin/bash /lxd/${SALT_MASTER_NAME}.sh
+sudo lxc exec ${SALT_MASTER_NAME} -- /bin/bash /lxd/${MASTER_IMAGE}.sh
 
 sleep 5
 
@@ -123,7 +120,7 @@ id: ${vname}">${PWD}/scripts/saltconfig/minion.local.conf
     lxc profile add ${vname} ${vname}-proxy-8080
 
     sudo lxc config device add ${vname} ${vname}-script-share disk source=${PWD}/scripts path=/lxd
-    sudo lxc exec ${vname} -- /bin/bash /lxd/${SALT_MINION_NAME}.sh
+    sudo lxc exec ${vname} -- /bin/bash /lxd/${MINION_IMAGE}.sh
     
     
 done

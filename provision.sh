@@ -1,10 +1,8 @@
 #!/bin/bash
 
 SCRIPT_PREFIX="salt"
-OS=images:ubuntu/jammy
-OS_FINGERPRINT="39da8bdecb9450521ec97683265fbc51fa1f29c0eabae102e7be78e787788047"
 STORAGE_PATH="/data/lxd/"${SCRIPT_PREFIX}
-IP="10.120.11"
+IP="192.168.56"
 IFACE="eth0"
 IP_SUBNET=${IP}".1/24"
 SALT_MASTER_POOL=${SCRIPT_PREFIX}"-pool"
@@ -12,8 +10,8 @@ SCRIPT_PROFILE_NAME=${SCRIPT_PREFIX}"-profile"
 SCRIPT_BRIDGE_NAME=${SCRIPT_PREFIX}"-br"
 SALT_MINION_NAME=${SCRIPT_PREFIX}"-minion"
 SALT_MASTER_NAME=${SCRIPT_PREFIX}"-master"
-MASTER_IMAGE=${OS}
-MINION_IMAGE=${OS}
+MASTER_IMAGE=${SALT_MASTER_NAME}
+MINION_IMAGE=${SALT_MINION_NAME}
 IS_MASTER_LOCAL=false
 IS_MINION_LOCAL=false
 
@@ -48,15 +46,17 @@ do
     fi
 done
 
+if ! ${IS_MASTER_LOCAL} || ! ${IS_MINION_LOCAL}; then
+    echo "Please provision Master & Salt using https://github.com/iamnswamyg/salt-infra-image.git"
+    exit 0 
+fi
+
 # preparing master conf file
 echo "interface: ${IP}.2
 auto_accept: True">${PWD}/scripts/saltconfig/master.local.conf
 
-
-
-
 declare -a clients=("vno%1 ip%${IP}.3 ker%${MINION_IMAGE}" 
-                    "vno%2 ip%${IP}.4 ker%${MINION_IMAGE}")
+                    )
 
 if ! [ -d ${STORAGE_PATH} ]; then
     sudo mkdir -p ${STORAGE_PATH}
@@ -90,35 +90,27 @@ lxc init ${MASTER_IMAGE} ${SALT_MASTER_NAME} --profile ${SCRIPT_PROFILE_NAME}
 lxc network attach ${SCRIPT_BRIDGE_NAME} ${SALT_MASTER_NAME} ${IFACE}
 lxc config device set ${SALT_MASTER_NAME} ${IFACE} ipv4.address ${IP}.2
 lxc start ${SALT_MASTER_NAME} 
-if lxc image list --format=json | jq -r '.[] | .fingerprint' | grep -q "$OS_FINGERPRINT"; then
-    lxc image alias create ubuntu22.04 "$OS_FINGERPRINT"
-fi
+
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-script-share disk source=${PWD}/scripts path=/lxd
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-salt-share disk source=${PWD}/salt-root/salt path=/srv/salt
 sudo lxc config device add ${SALT_MASTER_NAME} ${SALT_MASTER_NAME}-pillar-share disk source=${PWD}/salt-root/pillar path=/srv/pillar
 sudo lxc exec ${SALT_MASTER_NAME} -- /bin/bash /lxd/${SALT_MASTER_NAME}.sh
-if ! ${IS_MASTER_LOCAL}; then
-    # save container as image
-    lxc stop ${SALT_MASTER_NAME}
-    lxc publish ${SALT_MASTER_NAME} --alias ${SALT_MASTER_NAME} 
-    lxc start ${SALT_MASTER_NAME}
-    IS_MASTER_LOCAL=true
-fi
+
 sleep 5
 
 # Loop through the salt-minions and create the minions
 for client in "${clients[@]}"; do
+  
+  
+  
   vno=$(echo "$client" | awk '{print $1}' | awk -F% '{print $2}')
   ip=$(echo "$client" | awk '{print $2}' | awk -F% '{print $2}')
   ker=$(echo "$client" | awk '{print $3}' | awk -F% '{print $2}')
   vname=${SALT_MINION_NAME}${vno}
-    
-    echo ${IS_MINION_LOCAL}
 
-    if ${IS_MINION_LOCAL}; then
-        ker=${SALT_MINION_NAME}
-    fi
-
+  lxc profile create ${vname}-proxy-8080
+  lxc profile device add ${vname}-proxy-8080 hostport8080 proxy connect="tcp:127.0.0.1:80" listen="tcp:0.0.0.0:8080"
+      
     # preparing minion conf file
     echo "master: ${IP}.2
 id: ${vname}">${PWD}/scripts/saltconfig/minion.local.conf
@@ -128,17 +120,12 @@ id: ${vname}">${PWD}/scripts/saltconfig/minion.local.conf
     lxc network attach ${SCRIPT_BRIDGE_NAME} ${vname} ${IFACE}
     lxc config device set ${vname} ${IFACE} ipv4.address ${ip}
     lxc start ${vname} 
+    lxc profile add ${vname} ${vname}-proxy-8080
 
     sudo lxc config device add ${vname} ${vname}-script-share disk source=${PWD}/scripts path=/lxd
     sudo lxc exec ${vname} -- /bin/bash /lxd/${SALT_MINION_NAME}.sh
     
-    if ! ${IS_MINION_LOCAL}; then
-        IS_MINION_LOCAL=true
-        lxc stop ${vname}
-        lxc publish ${vname} --alias ${SALT_MINION_NAME} 
-        lxc start ${vname}
-    fi
-    sleep 10
+    
 done
 
 

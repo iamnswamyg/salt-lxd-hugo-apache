@@ -1,7 +1,7 @@
 
 #!/bin/bash
 
-SCRIPT_PREFIX="salt"
+SCRIPT_PREFIX="salt-hugo"
 # Get the list of running containers
 containers=$(lxc list -c ns --format=json | jq -r '.[] | .name')
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SCRIPT_PREFIX="salt"
+SCRIPT_PREFIX="salt-hugo"
 STORAGE_PATH="/data/lxd/"${SCRIPT_PREFIX}
 IP="192.168.56"
 IFACE="eth0"
